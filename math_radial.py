@@ -6,6 +6,11 @@ import numpy as np
 import math
 from config import MAX_N, R_MAX, R_POINTS
 
+# 预计算 Laguerre 用的全局表
+_LAGUERRE_RHO_GRID = None
+_LAGUERRE_CACHE = {}      # key: (n, l) -> L_{n-l-1}^{2l+1}(rho_grid)
+_LAGUERRE_READY = False
+
 def available_n_values(max_n: int = MAX_N):
     return list(range(1, max_n + 1))
 
@@ -92,9 +97,15 @@ def radial_wavefunction(n: int, l: int, r: np.ndarray, Z: float = 1.0):
     k = n - l - 1
     alpha = 2*l + 1
 
-    L_full = laguerre_table.get(k, alpha)
-    L = np.interp(rho, laguerre_table.rho_grid, L_full)
+    global _LAGUERRE_RHO_GRID, _LAGUERRE_CACHE, _LAGUERRE_READY
 
+    # 如果预计算表已经就绪，优先用插值
+    if _LAGUERRE_READY and (n, l) in _LAGUERRE_CACHE:
+        L_full = _LAGUERRE_CACHE[(n, l)]
+        L = np.interp(rho, _LAGUERRE_RHO_GRID, L_full)
+    else:
+        # 还没准备好，就临时算一遍（只会在启动早期用到）
+        L = assoc_laguerre(k, alpha, rho)
 
     # 归一化因子（解析式）
     num = math.factorial(n - l - 1)
@@ -109,7 +120,39 @@ def radial_wavefunction(n: int, l: int, r: np.ndarray, Z: float = 1.0):
     R = np.where(np.isfinite(R), R, 0.0)
     return R
 
-
 def radial_with_grid(n: int, l: int):
     r = radial_grid()
     return r, radial_wavefunction(n, l, r)
+
+def laguerre_precompute_worker(queue, max_n: int = MAX_N, rho_points: int = 2000):
+    """
+    在子进程中预计算所有 (n,l) 的 Laguerre 多项式表，
+    计算完后通过 queue 把 (rho_grid, cache) 传回主进程。
+    """
+    import numpy as _np
+
+    Z = 1.0
+    rho_max = 2.0 * Z * R_MAX  # r ∈ [0, R_MAX] 时，n>=1 对应的 rho 最大值
+
+    rho_grid = _np.linspace(0.0, rho_max, rho_points)
+    cache = {}
+
+    for n in range(1, max_n + 1):
+        for l in range(0, n):
+            k = n - l - 1
+            alpha = 2*l + 1
+            L = assoc_laguerre(k, alpha, rho_grid)
+            cache[(n, l)] = L.astype(float)
+
+    # 通过队列返回
+    queue.put((rho_grid, cache))
+
+def apply_laguerre_table(rho_grid, cache):
+    """
+    在主进程中调用：接收子进程算好的 Laguerre 表，填充到全局缓存。
+    """
+    global _LAGUERRE_RHO_GRID, _LAGUERRE_CACHE, _LAGUERRE_READY
+
+    _LAGUERRE_RHO_GRID = np.asarray(rho_grid, dtype=float)
+    _LAGUERRE_CACHE = {tuple(k): np.asarray(v, dtype=float) for k, v in cache.items()}
+    _LAGUERRE_READY = True

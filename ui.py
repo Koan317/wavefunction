@@ -1,5 +1,8 @@
 ﻿# ui.py
 import sys
+import multiprocessing
+import queue as _queue  # 标准库 Queue 的 Empty 用
+from math_radial import laguerre_precompute_worker, apply_laguerre_table
 from PyQt5 import QtWidgets, QtCore
 import pyvista as pv
 from pyvistaqt import QtInteractor
@@ -57,32 +60,25 @@ class WaveFunctionWindow(QtWidgets.QMainWindow):
         self.stack = QtWidgets.QStackedLayout()
         main_layout.addLayout(self.stack, stretch=1)
 
-        # 2D（径向）
+        # 2D（径向）——主进程立即加载
         self.canvas_2d = Radial2DCanvas(self)
         self.stack.addWidget(self.canvas_2d)
 
-        # 单视图 3D（RY / ψ²）
-        self.pv_single = QtInteractor(self)
-        self.pv_single.enable_depth_peeling()
-        self.stack.addWidget(self.pv_single)
+        # 3D 单视图占位
+        self._single_container = QtWidgets.QWidget(self)
+        self.stack.addWidget(self._single_container)
 
-        # 球谐函数双视图
+        # 球谐双视图占位
         self.sph_container = QtWidgets.QWidget(self)
-        hl = QtWidgets.QHBoxLayout(self.sph_container)
-        hl.setContentsMargins(0, 0, 0, 0)
-
-        self.pv_left = QtInteractor(self.sph_container)
-        self.pv_left.enable_depth_peeling()
-        self.pv_right = QtInteractor(self.sph_container)
-        self.pv_right.enable_depth_peeling()
-
-        hl.addWidget(self.pv_left)
-        hl.addWidget(self.pv_right)
         self.stack.addWidget(self.sph_container)
 
-        # 绘图器
-        self.sph_plotter = SphericalDualPlotter(self.pv_left, self.pv_right)
-        self.wave3d_plotter = Wave3DPlotter(self.pv_single)
+        # 3D 对象延迟初始化
+        self.pv_single = None
+        self.pv_left = None
+        self.pv_right = None
+        self.sph_plotter = None
+        self.wave3d_plotter = None
+        self._3d_initialized = False
 
         # 初始化量子数组件
         self._init_quantum_controls()
@@ -115,6 +111,44 @@ class WaveFunctionWindow(QtWidgets.QMainWindow):
 
         # 初始绘图
         self.update_plot(show_dialog=False)
+
+        # 异步（事件循环开始后）初始化 3D 控件：只创建组件，不画图
+        QtCore.QTimer.singleShot(0, self._init_3d_views)
+
+        # Laguerre 多项式后台预计算（多进程）
+        self._laguerre_queue = multiprocessing.Queue()
+        self._laguerre_proc = multiprocessing.Process(
+            target=laguerre_precompute_worker,
+            args=(self._laguerre_queue, )
+        )
+        self._laguerre_proc.daemon = True
+        self._laguerre_proc.start()
+
+        # 用 QTimer 轮询子进程结果，不阻塞 UI
+        self._laguerre_timer = QtCore.QTimer(self)
+        self._laguerre_timer.timeout.connect(self._poll_laguerre_result)
+        self._laguerre_timer.start(100)
+
+    def _poll_laguerre_result(self):
+        if self._laguerre_queue is None:
+            return
+        try:
+            rho_grid, cache = self._laguerre_queue.get_nowait()
+        except _queue.Empty:
+            return
+
+        # 应用预计算表
+        apply_laguerre_table(rho_grid, cache)
+
+        # 清理定时器和队列
+        self._laguerre_timer.stop()
+        self._laguerre_queue = None
+        # 子进程设成守护进程，会自动退出；保险一点可以尝试 terminate
+        try:
+            self._laguerre_proc.terminate()
+        except Exception:
+            pass
+        self._laguerre_proc = None
 
     # ================================================================
     # 量子数逻辑
@@ -207,6 +241,17 @@ class WaveFunctionWindow(QtWidgets.QMainWindow):
         # ---------------- RY/ψ²：3D 点密度 ----------------
         self.stack.setCurrentIndex(1)
 
+        # 如果当前模式需要 3D，而 3D 还没初始化，则立即初始化一次
+        need_3d = (
+            self.m_controls.radio_ylm_real.isChecked() or
+            self.m_controls.radio_ylm_imag.isChecked() or
+            self.m_controls.radio_psire.isChecked() or
+            self.m_controls.radio_psiim.isChecked() or
+            self.m_controls.radio_prob.isChecked()
+        )
+        if need_3d and not self._3d_initialized:
+            self._init_3d_views()
+
         dlg = None
         if show_dialog:
             dlg = QtWidgets.QProgressDialog(
@@ -234,6 +279,37 @@ class WaveFunctionWindow(QtWidgets.QMainWindow):
 
         if dlg is not None:
             dlg.close()
+
+    def _init_3d_views(self):
+        if self._3d_initialized:
+            return
+
+        # 单视图 3D
+        layout_single = QtWidgets.QVBoxLayout(self._single_container)
+        layout_single.setContentsMargins(0, 0, 0, 0)
+
+        self.pv_single = QtInteractor(self._single_container)
+        self.pv_single.enable_depth_peeling()
+        layout_single.addWidget(self.pv_single)
+
+        # 球谐双视图
+        hl = QtWidgets.QHBoxLayout(self.sph_container)
+        hl.setContentsMargins(0, 0, 0, 0)
+
+        self.pv_left = QtInteractor(self.sph_container)
+        self.pv_left.enable_depth_peeling()
+        self.pv_right = QtInteractor(self.sph_container)
+        self.pv_right.enable_depth_peeling()
+
+        hl.addWidget(self.pv_left)
+        hl.addWidget(self.pv_right)
+
+        # 绘图器对象
+        self.sph_plotter = SphericalDualPlotter(self.pv_left, self.pv_right)
+        self.wave3d_plotter = Wave3DPlotter(self.pv_single)
+
+        self._3d_initialized = True
+
 
     # ================================================================
     # 关闭事件（防止 OpenGL 崩溃）

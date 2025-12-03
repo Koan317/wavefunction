@@ -12,8 +12,10 @@ class SamplingControls(QtWidgets.QGroupBox):
         layout = QtWidgets.QVBoxLayout(self)
 
         self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.slider.setRange(5000, 1_000_000)
+        self.slider.setRange(10000, 1_000_000)
         self.slider.setValue(200_000)
+        self.slider.setSingleStep(10000)
+        self.slider.setPageStep(10000)
 
         self.label = QtWidgets.QLabel("N = 200000")
 
@@ -23,5 +25,15 @@ class SamplingControls(QtWidgets.QGroupBox):
         self.slider.valueChanged.connect(self.on_value_changed)
 
     def on_value_changed(self, v):
-        self.label.setText(f"N = {v}")
-        self.sampling_changed.emit(v)
+        # 自动拉回到最近的 10000 倍数
+        snapped = (v // 10000) * 10000
+
+        # 如果拉回后的值和 slider 显示不一致，则更新 slider 本身
+        if snapped != v:
+            self.slider.blockSignals(True)
+            self.slider.setValue(snapped)
+            self.slider.blockSignals(False)
+
+        self.label.setText(f"N = {snapped}")
+        self.sampling_changed.emit(snapped)
+
