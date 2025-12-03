@@ -26,14 +26,14 @@ class HydrogenSampler:
     # 1) 径向：自动找到“最后一层壳”的位置，再在那之前做严格物理采样
     # ---------------------------------------------------------
     def _prepare_radial(self):
-        # 先用较粗的网格扫一遍，看 r^2|R|^2 的峰在哪里
-        r_probe = np.linspace(0.0, self.rmax_theory, 15000)
-        R_probe = radial_wavefunction(self.n, self.l, r_probe)
-        P_probe = (r_probe**2) * (R_probe**2)
+        # 单次高分辨率扫描，同时用于峰值定位与最终抽样
+        r_full = np.linspace(0.0, self.rmax_theory, 30000)
+        R_full = radial_wavefunction(self.n, self.l, r_full)
+        P_full = (r_full**2) * (R_full**2)
 
         # 找所有局部峰值（壳中心）
-        peaks_mask = (P_probe[1:-1] > P_probe[:-2]) & (P_probe[1:-1] > P_probe[2:])
-        peak_indices = np.where(peaks_mask)[0] + 1  # 对应 r_probe 的索引
+        peaks_mask = (P_full[1:-1] > P_full[:-2]) & (P_full[1:-1] > P_full[2:])
+        peak_indices = np.where(peaks_mask)[0] + 1  # 对应 r_full 的索引
 
         if len(peak_indices) == 0:
             # 极少数异常，兜底直接用理论 rmax
@@ -41,19 +41,17 @@ class HydrogenSampler:
         else:
             # 最后一个“真正的壳峰”
             last_peak_idx = peak_indices[-1]
-            last_peak_r = r_probe[last_peak_idx]
+            last_peak_r = r_full[last_peak_idx]
 
             # 在最后一层壳外面再留一点余量（防止裁太死）
             r_cut = min(self.rmax_theory, last_peak_r * 1.4)
 
         self.rmax = float(r_cut)
 
-        # 现在在 [0, rmax] 内重新用高分辨率网格，严格按 r^2|R|^2 做 PDF
-        Nr_grid = 30000
-        r_grid = np.linspace(0.0, self.rmax, Nr_grid)
-        R = radial_wavefunction(self.n, self.l, r_grid)
-
-        pdf = (r_grid**2) * (R**2)
+        # 现在在 [0, rmax] 内直接用已计算的高分辨率网格，严格按 r^2|R|^2 做 PDF
+        r_mask = r_full <= self.rmax
+        r_grid = r_full[r_mask]
+        pdf = P_full[r_mask]
         pdf = np.maximum(pdf, 0.0)
         s = pdf.sum()
         if s <= 0:
