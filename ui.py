@@ -82,6 +82,7 @@ class WaveFunctionWindow(QtWidgets.QMainWindow):
 
         # 初始化量子数组件
         self._init_quantum_controls()
+        self._update_sampling_max()
 
         # ================= 信号连接 =================
         # 量子数变化 → 弹窗
@@ -167,6 +168,7 @@ class WaveFunctionWindow(QtWidgets.QMainWindow):
     def _on_n_changed(self):
         self.q_controls.update_l()
         self.q_controls.update_m()
+        self._update_sampling_max()
         self.update_plot(show_dialog=True)
 
     def _on_l_changed(self):
@@ -192,6 +194,9 @@ class WaveFunctionWindow(QtWidgets.QMainWindow):
         )
         self.s_controls.slider.setEnabled(is_dense)
         self.s_controls.label.setEnabled(is_dense)
+
+    def _update_sampling_max(self):
+        self.s_controls.set_max_for_n(self.current_n())
 
     # ================================================================
     # 顶部标题

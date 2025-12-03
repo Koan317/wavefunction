@@ -24,6 +24,21 @@ class SamplingControls(QtWidgets.QGroupBox):
 
         self.slider.valueChanged.connect(self.on_value_changed)
 
+    def set_max_for_n(self, n: int):
+        """根据主量子数 n 动态调整采样点数上限。
+
+        规则：n=10 时上限 2,000,000，每改变 1，最大值变化 100,000。
+        """
+
+        max_value = max(10000, 2_000_000 + (n - 10) * 100_000)
+        self.slider.setMaximum(max_value)
+
+        if self.slider.value() > max_value:
+            self.slider.setValue(max_value)
+        else:
+            # 确保标签与当前值同步
+            self.on_value_changed(self.slider.value())
+
     def on_value_changed(self, v):
         # 自动拉回到最近的 10000 倍数
         snapped = (v // 10000) * 10000
