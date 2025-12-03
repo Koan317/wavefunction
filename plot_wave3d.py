@@ -17,11 +17,18 @@ from math_radial import radial_wavefunction, radial_with_grid
 class Wave3DPlotter:
     def __init__(self, plotter: pv.Plotter):
         self.plotter = plotter
+        self._sample_cache = {}
+        self._shell_peak_cache = {}
 
     # ---------------------------------------------------------
     # 自动分壳：使用径向概率分布 r^2 |R|^2
     # ---------------------------------------------------------
     def _radial_shell_peaks(self, n, l):
+        key = (n, l)
+        cached = self._shell_peak_cache.get(key)
+        if cached is not None:
+            return cached
+
         r, R = radial_with_grid(n, l)
         P = (r * r) * (R * R)
 
@@ -34,7 +41,28 @@ class Wave3DPlotter:
         if len(peaks) == 0:
             peaks = [r[np.argmax(P)]]
 
-        return np.array(peaks)
+        peaks_arr = np.array(peaks)
+        self._shell_peak_cache[key] = peaks_arr
+        return peaks_arr
+
+    def _get_samples(self, n, l, m, N):
+        key = (n, l, m, N)
+        cached = self._sample_cache.get(key)
+        if cached is not None:
+            return cached
+
+        sampler = HydrogenSampler(n, l, m, N)
+        r, th, ph, x, y, z = sampler.sample(N)
+        pts = np.column_stack((x, y, z))
+
+        cached = {
+            "r": r,
+            "th": th,
+            "ph": ph,
+            "pts": pts,
+        }
+        self._sample_cache[key] = cached
+        return cached
 
     # ---------------------------------------------------------
     # 主绘图函数
@@ -42,10 +70,12 @@ class Wave3DPlotter:
     def plot(self, n, l, m, mode="psi_real", N=200000):
         self.plotter.clear()
 
-        # ------- 连续抽样 -------
-        sampler = HydrogenSampler(n, l, m, N)
-        r, th, ph, x, y, z = sampler.sample(N)
-        pts = np.column_stack((x, y, z))
+        # ------- 连续抽样（缓存） -------
+        sample = self._get_samples(n, l, m, N)
+        r = sample["r"]
+        th = sample["th"]
+        ph = sample["ph"]
+        pts = sample["pts"]
 
         # ------- 计算波函数值 -------
         if mode == "psi_real":
