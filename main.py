@@ -2,7 +2,10 @@
 """
 程序入口
 """
-from ui import run_app
-
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
+    multiprocessing.set_start_method("spawn", force=True)
+
+    from ui import run_app
     run_app()
