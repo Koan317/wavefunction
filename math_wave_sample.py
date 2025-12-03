@@ -10,6 +10,8 @@ from math_radial import radial_wavefunction
 from math_spherical import spherical_harmonic_real, spherical_harmonic_imag
 
 class HydrogenSampler:
+    _angular_cache = {}
+
     def __init__(self, n, l, m, N=80000):
         self.n = n
         self.l = l
@@ -76,40 +78,57 @@ class HydrogenSampler:
     # 2) 角分布：p(θ, φ) ∝ |Y|^2 sinθ
     # ---------------------------------------------------------
     def _prepare_angular(self):
-        Nth = int(60 + 20 * (self.l + 1))
-        Nph = int(120 + 40 * (self.l + 1))
+        key = (self.l, self.m)
+        cache = self._angular_cache.get(key)
 
-        th_edges = np.linspace(0.0, np.pi, Nth + 1)
-        ph_edges = np.linspace(0.0, 2*np.pi, Nph + 1)
+        if cache is None:
+            Nth = int(60 + 20 * (self.l + 1))
+            Nph = int(120 + 40 * (self.l + 1))
 
-        th_centers = 0.5 * (th_edges[:-1] + th_edges[1:])
-        ph_centers = 0.5 * (ph_edges[:-1] + ph_edges[1:])
+            th_edges = np.linspace(0.0, np.pi, Nth + 1)
+            ph_edges = np.linspace(0.0, 2*np.pi, Nph + 1)
 
-        TH, PH = np.meshgrid(th_centers, ph_centers, indexing="ij")
+            th_centers = 0.5 * (th_edges[:-1] + th_edges[1:])
+            ph_centers = 0.5 * (ph_edges[:-1] + ph_edges[1:])
 
-        Yr = spherical_harmonic_real(self.l, self.m, TH, PH)
-        Yi = spherical_harmonic_imag(self.l, self.m, TH, PH)
-        Y2 = Yr*Yr + Yi*Yi
+            TH, PH = np.meshgrid(th_centers, ph_centers, indexing="ij")
 
-        pdf = Y2 * np.sin(TH)
-        pdf = np.maximum(pdf, 0.0)
-        pdf_flat = pdf.ravel()
-        s = pdf_flat.sum()
-        if s <= 0:
-            pdf_flat[:] = 1.0
+            Yr = spherical_harmonic_real(self.l, self.m, TH, PH)
+            Yi = spherical_harmonic_imag(self.l, self.m, TH, PH)
+            Y2 = Yr*Yr + Yi*Yi
+
+            pdf = Y2 * np.sin(TH)
+            pdf = np.maximum(pdf, 0.0)
+            pdf_flat = pdf.ravel()
             s = pdf_flat.sum()
-        pdf_flat /= s
+            if s <= 0:
+                pdf_flat[:] = 1.0
+                s = pdf_flat.sum()
+            pdf_flat /= s
 
-        cdf = np.cumsum(pdf_flat)
-        cdf /= cdf[-1]
+            cdf = np.cumsum(pdf_flat)
+            cdf /= cdf[-1]
 
-        self._Nth = Nth
-        self._Nph = Nph
-        self._th_edges = th_edges
-        self._ph_edges = ph_edges
-        self._th_centers = th_centers
-        self._ph_centers = ph_centers
-        self._ang_cdf = cdf
+            cache = (
+                Nth,
+                Nph,
+                th_edges,
+                ph_edges,
+                th_centers,
+                ph_centers,
+                cdf,
+            )
+            self._angular_cache[key] = cache
+
+        (
+            self._Nth,
+            self._Nph,
+            self._th_edges,
+            self._ph_edges,
+            self._th_centers,
+            self._ph_centers,
+            self._ang_cdf,
+        ) = cache
 
     def _sample_theta_phi(self, N=None):
         if N is None:
