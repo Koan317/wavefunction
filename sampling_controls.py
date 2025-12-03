@@ -12,7 +12,7 @@ class SamplingControls(QtWidgets.QGroupBox):
         layout = QtWidgets.QVBoxLayout(self)
 
         self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.slider.setRange(10000, 1_000_000)
+        self.slider.setRange(10000, 2_000_000)
         self.slider.setValue(200_000)
         self.slider.setSingleStep(10000)
         self.slider.setPageStep(10000)
