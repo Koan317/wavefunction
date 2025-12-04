@@ -102,9 +102,9 @@ class WaveFunctionWindow(QtWidgets.QMainWindow):
         )
         self.m_controls.mode_changed.connect(self._update_sampling_enabled)
 
-        # 采样精度变化 → 不弹窗
+        # 采样精度变化 → 弹窗
         self.s_controls.sampling_changed.connect(
-            lambda _v: self.update_plot(show_dialog=False)
+            lambda _v: self.update_plot(show_dialog=True)
         )
 
         # 初始化采样控件是否启用
