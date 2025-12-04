@@ -196,7 +196,8 @@ class WaveFunctionWindow(QtWidgets.QMainWindow):
         self.s_controls.label.setEnabled(is_dense)
 
     def _update_sampling_max(self):
-        self.s_controls.set_max_for_n(self.current_n())
+        # 调整最大值时不需要重新触发采样更新，避免重复绘图
+        self.s_controls.set_max_for_n(self.current_n(), emit_signal=False)
 
     # ================================================================
     # 顶部标题

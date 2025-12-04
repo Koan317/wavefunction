@@ -75,7 +75,7 @@ class SamplingControls(QtWidgets.QGroupBox):
         # 初始标签同步
         self._apply_value(self.slider.value(), emit_signal=False)
 
-    def set_max_for_n(self, n: int):
+    def set_max_for_n(self, n: int, emit_signal: bool = True):
         max_value = max(10000, 200_000 + n * 200_000)
         self.slider.setMaximum(max_value)
 
@@ -85,7 +85,7 @@ class SamplingControls(QtWidgets.QGroupBox):
             self.slider.blockSignals(False)
 
         # 确保标签与当前值同步
-        self._apply_value(self.slider.value())
+        self._apply_value(self.slider.value(), emit_signal=emit_signal)
 
     def on_value_changed(self, v):
         # 鼠标拖拽未松开前不更新标签/图像
